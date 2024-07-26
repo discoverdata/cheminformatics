@@ -22,23 +22,25 @@ out_filename_map = {
 def read_cmdline():
     parser = argparse.ArgumentParser()
     parser.add_argument("-in", type = str, 
-                    help="Input file to be filtered. Smiles format recommended")
-    parser.add_argument("-filter", type = str, 
-                    help="Filter criteria file or argument")
-    parser.add_argument("-mpi_np", type = str, 
-                    help="How many cores to use?")
-    parser.add_argument("-query", type = str, 
-                    help="Query moelcule for running ROCS")
+                    help="Input file to be filtered. Smiles format recommended.")
     parser.add_argument("-upto", type = str, 
-                    help="Run pipeline upto [basic filter,pains filter, oeomega, rocs]")
+                    help="Run pipeline upto [basic filter,pains filter, oeomega, rocs].")
     parser.add_argument("-only", type = str, 
-                    help="Run only step pipeline [basic filter,pains filter, oeomega, rocs]")
+                    help="Run only step pipeline [basic filter,pains filter, oeomega, rocs].")
+    parser.add_argument("-from", type = str, 
+                    help="Run step pipeline from[basic filter,pains filter, oeomega, rocs].")
+    parser.add_argument("-filter", type = str, 
+                    help="Filter criteria file or argument.")
+    parser.add_argument("-mpi_np", type = str, 
+                    help="How many cores to use? Default 8.")
+    parser.add_argument("-query", type = str, 
+                    help="Query moelcule for running ROCS.")
     args=vars(parser.parse_args())
     
     return args
 
 args = read_cmdline()
-#print("filter type {}, {}".format(args.keys(),args.values()))
+print("filter type {}, {}".format(args.keys(),args.values()))
     
 arguments = [arg for arg in args.values() if arg is not None]
 
@@ -46,7 +48,7 @@ if len(arguments) < 2:
     print(
         """Please enter the correct number of arguments.
     Usage: python pipeline.py -in INFILE -upto [basic|pains|oeomega|rocs] -only [basic|pains|oeomega|rocs] 
-    -filter FILTERFILE [optional] -mpi_np CORES [default 8] -oeomega [optional]
+    -from [basic|pains|oeomega|rocs] -filter FILTERFILE [optional] -mpi_np CORES [optional: default 8] -oeomega [optional]
     or run python pipeline.py -h for further help
     """)
     sys.exit(1)
@@ -60,6 +62,8 @@ def check_condition(key, value):
         elif key == 'upto' and value not in ['basic']:
             return True
         elif key == 'only' and value in ['basic']:
+            return True
+        elif key == 'from' and value in ['basic']:
             return True
         else:
             return False
@@ -159,6 +163,9 @@ def get_path(dirname,file):
     cwd = os.getcwd()
     return(os.path.join(cwd,dirname,file))
 
+def assign_mpi_np(mpi):
+    return 8 if mpi is None else mpi
+
 
 #print("Running Filter...")
 if args['upto'] == 'basic':
@@ -199,10 +206,8 @@ elif args['upto'] == 'oeomega':
         if key in ['in','upto']:
             check_file(key.lower(), str(value))
 
-    if args['mpi_np']:
-        mpi_np = args['mpi_np']
-    else:
-        mpi_np = 8
+    mpi_np = assign_mpi_np(args['mpi_np'])
+
     print("Running the {} filter".format('basic'))
     run_filter(in_file = args['in'], out_file = out_filename_map['basic'], filter = 'basic')
     sleep(1)
@@ -222,10 +227,9 @@ elif args['upto'] in ['rocs','all']:
     for key,value in (args.items()):
         if key in ['in','upto','query']:
             check_file(key.lower(), str(value))
-    if args['mpi_np']:
-        mpi_np = args['mpi_np']
-    else:
-        mpi_np = 8
+
+    mpi_np = assign_mpi_np(args['mpi_np'])
+
     run_filter(in_file = args['in'], out_file = out_filename_map['basic'], filter = 'basic')
     sleep(1)
     move_files_to(dirname="basic_filter")
@@ -237,9 +241,8 @@ elif args['upto'] in ['rocs','all']:
     in_file = get_path(dirname="pains_filter", file = out_filename_map['pains'])
     print("Generating conformers")
     run_oeomega(in_file=in_file, out_file = out_filename_map['oeomega'] ,mpi_np = mpi_np)
-    print("Running ROCS")
     move_files_to(dirname="oeomega")
-    sleep(2)
+    sleep(1)
     print("Running ROCS")
     in_file = get_path(dirname="oeomega", file = out_filename_map['oeomega'])
     run_rocs(in_file = in_file, query = args['query'], mpi_np = mpi_np)
@@ -277,10 +280,7 @@ elif args['only'] == 'oeomega':
         if key in ['in']:
             check_file(key.lower(), str(value))
 
-    if args['mpi_np']:
-        mpi_np = args['mpi_np']
-    else:
-        mpi_np = 8
+    mpi_np = assign_mpi_np(args['mpi_np'])
 
     print("Generating conformers")
     run_oeomega(in_file = args['in'], out_file = out_filename_map['oeomega'], mpi_np = mpi_np)
@@ -290,10 +290,87 @@ elif args['only'] in ['rocs']:
     for key,value in (args.items()):
         if key in ['in','query']:
             check_file(key.lower(), str(value))
-    if args['mpi_np']:
-        mpi_np = args['mpi_np']
-    else:
-        mpi_np = 8
+
+    mpi_np = assign_mpi_np(args['mpi_np'])
 
     print("Running ROCS")
     run_rocs(in_file = args['in'], query = args['query'], mpi_np = mpi_np)
+
+elif args['from'] == 'basic':
+    for key,value in (args.items()):
+        if key in ['in','from','query']:
+            check_file(key.lower(), str(value))
+
+    mpi_np = assign_mpi_np(args['mpi_np'])
+    
+    run_filter(in_file = args['in'], out_file = out_filename_map['basic'], filter = 'basic')
+    sleep(1)
+    move_files_to(dirname="basic_filter")
+    print("Running the {} filter".format('pains'))
+    sleep(1)
+    in_file = get_path(dirname="basic_filter", file = out_filename_map['basic'])
+    run_filter(in_file = in_file, out_file = out_filename_map['pains'], filter = 'pains')
+    move_files_to(dirname="pains_filter")
+    in_file = get_path(dirname="pains_filter", file = out_filename_map['pains'])
+    print("Generating conformers")
+    run_oeomega(in_file=in_file, out_file = out_filename_map['oeomega'] ,mpi_np = mpi_np)
+    move_files_to(dirname="oeomega")
+    sleep(1)
+    print("Running ROCS")
+    in_file = get_path(dirname="oeomega", file = out_filename_map['oeomega'])
+    run_rocs(in_file = in_file, query = args['query'], mpi_np = mpi_np)
+
+elif args['from'] in ['pains','blockbuster']:
+    for key,value in (args.items()):
+        if key in ['in','from','query']:
+            check_file(key.lower(), str(value))
+    
+    mpi_np = assign_mpi_np(args['mpi_np'])
+
+    if args['filter'] not in ['pains','blockbuster']:
+        print("Filter option is not defined. Please use -filter pains/blockbuster")
+        sys.exit(1)
+    else: 
+        filter_type = args['filter']
+
+    print("Running the {} filter".format(filter_type))
+    run_filter(in_file = args['in'], out_file = out_filename_map[filter_type], filter = filter_type)
+    sleep(1)
+    dirname = filter_type + "_" + "filter"
+    move_files_to(dirname=dirname)
+    in_file = get_path(dirname=dirname, file = out_filename_map[filter_type])
+    print("Generating conformers")
+    run_oeomega(in_file=in_file, out_file = out_filename_map['oeomega'] ,mpi_np = mpi_np)
+    move_files_to(dirname="oeomega")
+    sleep(1)
+    print("Running ROCS")
+    in_file = get_path(dirname="oeomega", file = out_filename_map['oeomega'])
+    run_rocs(in_file = in_file, query = args['query'], mpi_np = mpi_np)
+
+elif args['from'] == 'oeomega':
+    for key,value in (args.items()):
+        if key in ['in','query']:
+            check_file(key.lower(), str(value))
+
+    mpi_np = assign_mpi_np(args['mpi_np'])
+
+    print("Generating conformers")
+    run_oeomega(in_file=args['in'], out_file = out_filename_map['oeomega'] ,mpi_np = mpi_np)
+    move_files_to(dirname="oeomega")
+    sleep(1)
+    print("Running ROCS")
+    in_file = get_path(dirname="oeomega", file = out_filename_map['oeomega'])
+    run_rocs(in_file = in_file, query = args['query'], mpi_np = mpi_np)
+
+elif args['from'] in ['rocs','all']:
+    for key,value in (args.items()):
+        if key in ['in','query']:
+            check_file(key.lower(), str(value))
+    
+    mpi_np = assign_mpi_np(args['mpi_np'])
+    
+    print("Running ROCS")
+    run_rocs(in_file = args['in'], query = args['query'], mpi_np = mpi_np)
+
+else:
+    print("Exiting. Nothing to do. -upto/-only/-from argument not provided")
