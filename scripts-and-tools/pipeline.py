@@ -16,7 +16,8 @@ out_filename_map = {
         'basic' : 'filtered_basic.smi',
         'pains' : 'filtered_pains.smi',
         'blockbuster': 'filtered_blockbuster.smi',
-        'oeomega' : 'oeomega_conformers.oeb.gz'
+        'oeomega' : 'oeomega_conformers.oeb.gz',
+        'rocs' : 'rocs_hits_1.oeb.gz'
         }
 
 def read_cmdline():
@@ -40,15 +41,15 @@ def read_cmdline():
     return args
 
 args = read_cmdline()
-print("filter type {}, {}".format(args.keys(),args.values()))
+# print("filter type {}, {}".format(args.keys(),args.values()))
     
 arguments = [arg for arg in args.values() if arg is not None]
 
 if len(arguments) < 2:
     print(
         """Please enter the correct number of arguments.
-    Usage: python pipeline.py -in INFILE -upto [basic|pains|oeomega|rocs] -only [basic|pains|oeomega|rocs] 
-    -from [basic|pains|oeomega|rocs] -filter FILTERFILE [optional] -mpi_np CORES [optional: default 8] -oeomega [optional]
+    Usage: python pipeline.py -in INFILE -upto [basic|pains|oeomega|rocs|eon] -only [basic|pains|oeomega|rocs|eon] 
+    -from [basic|pains|oeomega|rocs|eon] -filter FILTERFILE [optional] -mpi_np CORES [optional: default 8] -oeomega [optional]
     or run python pipeline.py -h for further help
     """)
     sys.exit(1)
@@ -137,19 +138,27 @@ def run_filter(in_file,out_file, filter):
 def run_oeomega(in_file, out_file, progress= 'percent', mpi_np = 8):
     omega_cmd = "oeomega rocs -in" + " " + in_file + " "  + "-out" + \
     " " + out_file + " " + "-mpi_np" + " " + str(mpi_np) + " " + "-progress" + " " + progress + " " + "-strictstereo false"
-    print(omega_cmd)
     os.system(omega_cmd)
 
 def run_rocs(in_file, query, mpi_np):
     rocs_cmd = "rocs -dbase" + " " + in_file + " " + "-query" + " " + query + " " + "-mpi_np" + " " + str(mpi_np)
     os.system(rocs_cmd)
 
+def run_rocs_report(in_file):
+    rocs_report_cmd = "rocs_report -in" + " " + in_file + " " + "-out rocs_report.pdf"
+    os.system(rocs_report_cmd)
+
+def run_eon(in_file, query, mpi_np):
+    eon_cmd = "eon -dbase" + " " + in_file + " " + "-query" + " " + query + " " + "-mpi_np" + " " + str(mpi_np) + " " + "-oformat" + " " + "oeb.gz"
+    os.system(eon_cmd)
+
+
 def create_dir(dirname):
     os.makedirs(dirname, exist_ok = True)
 
 
 def move_files_to(dirname):
-    file_regex = r"^filter[ed.]*|oeomega_*|^basic$"
+    file_regex = r"^filter[ed.]*|oeomega_*|^basic$|rocs[._]*|eon[._]*"
     cwd = os.getcwd()
     fnames = [f for f in os.listdir(cwd) if os.path.isfile(f) and re.search(file_regex,f,re.IGNORECASE)]
     source = cwd + "/" + dirname + "/"
@@ -223,7 +232,7 @@ elif args['upto'] == 'oeomega':
     run_oeomega(in_file = in_file, out_file = out_filename_map['oeomega'], mpi_np = mpi_np)
     move_files_to(dirname="oeomega")
 
-elif args['upto'] in ['rocs','all']:
+elif args['upto'] in ['rocs']:
     for key,value in (args.items()):
         if key in ['in','upto','query']:
             check_file(key.lower(), str(value))
@@ -246,6 +255,42 @@ elif args['upto'] in ['rocs','all']:
     print("Running ROCS")
     in_file = get_path(dirname="oeomega", file = out_filename_map['oeomega'])
     run_rocs(in_file = in_file, query = args['query'], mpi_np = mpi_np)
+    print("Generating ROCS report")
+    run_rocs_report(in_file = out_filename_map['rocs'])
+    sleep(1)
+    move_files_to(dirname="rocs")
+
+elif args['upto'] in ['eon','all']:
+    for key,value in (args.items()):
+        if key in ['in','upto','query']:
+            check_file(key.lower(), str(value))
+
+    mpi_np = assign_mpi_np(args['mpi_np'])
+
+    run_filter(in_file = args['in'], out_file = out_filename_map['basic'], filter = 'basic')
+    sleep(1)
+    move_files_to(dirname="basic_filter")
+    print("Running the {} filter".format('pains'))
+    sleep(1)
+    in_file = get_path(dirname="basic_filter", file = out_filename_map['basic'])
+    run_filter(in_file = in_file, out_file = out_filename_map['pains'], filter = 'pains')
+    move_files_to(dirname="pains_filter")
+    in_file = get_path(dirname="pains_filter", file = out_filename_map['pains'])
+    print("Generating conformers")
+    run_oeomega(in_file=in_file, out_file = out_filename_map['oeomega'] ,mpi_np = mpi_np)
+    move_files_to(dirname="oeomega")
+    sleep(1)
+    print("Running ROCS")
+    in_file = get_path(dirname="oeomega", file = out_filename_map['oeomega'])
+    run_rocs(in_file = in_file, query = args['query'], mpi_np = mpi_np)
+    move_files_to(dirname = "rocs")
+    sleep(1)
+    print("Running EON")
+    in_file = get_path(dirname="rocs", file = out_filename_map['rocs'])
+    run_eon(in_file = in_file, query = args['query'], mpi_np = mpi_np)
+    move_files_to(dirname = "eon")
+
+
 
 elif args['only'] == 'basic': 
     for key,value in (args.items()):
@@ -296,6 +341,17 @@ elif args['only'] in ['rocs']:
     print("Running ROCS")
     run_rocs(in_file = args['in'], query = args['query'], mpi_np = mpi_np)
 
+elif args['only'] in ['eon']:
+    for key,value in (args.items()):
+        if key in ['in','query']:
+            check_file(key.lower(), str(value))
+
+    mpi_np = assign_mpi_np(args['mpi_np'])
+
+    print("Running EON")
+    run_eon(in_file = args['in'], query = args['query'], mpi_np = mpi_np)
+    move_files_to(dirname = "eon")
+
 elif args['from'] == 'basic':
     for key,value in (args.items()):
         if key in ['in','from','query']:
@@ -314,11 +370,17 @@ elif args['from'] == 'basic':
     in_file = get_path(dirname="pains_filter", file = out_filename_map['pains'])
     print("Generating conformers")
     run_oeomega(in_file=in_file, out_file = out_filename_map['oeomega'] ,mpi_np = mpi_np)
-    move_files_to(dirname="oeomega")
     sleep(1)
+    move_files_to(dirname="oeomega")
     print("Running ROCS")
     in_file = get_path(dirname="oeomega", file = out_filename_map['oeomega'])
     run_rocs(in_file = in_file, query = args['query'], mpi_np = mpi_np)
+    sleep(1)
+    move_files_to(dirname = "rocs")
+    print("Running EON")
+    in_file = get_path(dirname="rocs", file = out_filename_map['rocs'])
+    run_eon(in_file = in_file, query = args['query'], mpi_np = mpi_np)
+    move_files_to(dirname = "eon")
 
 elif args['from'] in ['pains','blockbuster']:
     for key,value in (args.items()):
@@ -341,11 +403,17 @@ elif args['from'] in ['pains','blockbuster']:
     in_file = get_path(dirname=dirname, file = out_filename_map[filter_type])
     print("Generating conformers")
     run_oeomega(in_file=in_file, out_file = out_filename_map['oeomega'] ,mpi_np = mpi_np)
-    move_files_to(dirname="oeomega")
     sleep(1)
+    move_files_to(dirname="oeomega")
     print("Running ROCS")
     in_file = get_path(dirname="oeomega", file = out_filename_map['oeomega'])
     run_rocs(in_file = in_file, query = args['query'], mpi_np = mpi_np)
+    sleep(1)
+    move_files_to(dirname = "rocs")
+    print("Running EON")
+    in_file = get_path(dirname="rocs", file = out_filename_map['rocs'])
+    run_eon(in_file = in_file, query = args['query'], mpi_np = mpi_np)
+    move_files_to(dirname = "eon")
 
 elif args['from'] == 'oeomega':
     for key,value in (args.items()):
@@ -361,6 +429,12 @@ elif args['from'] == 'oeomega':
     print("Running ROCS")
     in_file = get_path(dirname="oeomega", file = out_filename_map['oeomega'])
     run_rocs(in_file = in_file, query = args['query'], mpi_np = mpi_np)
+    sleep(1)
+    move_files_to(dirname = "rocs")
+    print("Running EON")
+    in_file = get_path(dirname="rocs", file = out_filename_map['rocs'])
+    run_eon(in_file = in_file, query = args['query'], mpi_np = mpi_np)
+    move_files_to(dirname = "eon")
 
 elif args['from'] in ['rocs','all']:
     for key,value in (args.items()):
@@ -371,6 +445,12 @@ elif args['from'] in ['rocs','all']:
     
     print("Running ROCS")
     run_rocs(in_file = args['in'], query = args['query'], mpi_np = mpi_np)
+    sleep(1)
+    move_files_to(dirname = "rocs")
+    print("Running EON")
+    in_file = get_path(dirname="rocs", file = out_filename_map['rocs'])
+    run_eon(in_file = in_file, query = args['query'], mpi_np = mpi_np)
+    move_files_to(dirname = "eon")
 
 else:
     print("Exiting. Nothing to do. -upto/-only/-from argument not provided")
